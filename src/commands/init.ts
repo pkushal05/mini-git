@@ -1,15 +1,9 @@
-import fs from "fs";
-import path from "path";
+import { Repository } from "../core/Repository";
 
 export function init() {
-    const gitPath = path.join(process.cwd(), ".mgit");
+    let newRepo = new Repository(process.cwd());
+    newRepo.init();
 
-    if (fs.existsSync(gitPath)) {
-        console.log("Mini Git repository already exists");
-        return;
-    }
-
-    fs.mkdirSync(gitPath);
-
-    console.log("Initialized empty Mini Git repository.");
+    const hash = newRepo.storeObject("Hello, I'm Kushal Patel");
+    console.log(hash);
 }
