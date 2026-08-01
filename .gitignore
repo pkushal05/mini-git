@@ -83,6 +83,7 @@ out
 dist
 .output
 .mgit
+test.txt
 
 # Gatsby files
 .cache/
