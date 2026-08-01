@@ -84,6 +84,22 @@ export class Repository {
         return commitHash;
     }
 
+    getCurrentCommitTree(): string | null {
+        if (!this.objectStore) {
+            throw new Error("Objectstore does not exist");
+        }
+        const currentCommitHash = this.getCurrentCommitHash();
+
+        if (!currentCommitHash) {
+            return null;
+        }
+
+        const commitContent = this.objectStore.read(currentCommitHash);
+        const commitObject = Commit.deserialize(commitContent);
+
+        return commitObject.getTreeHash();
+    }
+
     createTree(): string {
         if (!this.index) {
             throw new Error("Index does not exist");
@@ -125,5 +141,91 @@ export class Repository {
         this.updateHEAD(commitHash);
 
         return commitHash;
+    }
+
+    log(): void {
+        if (!this.objectStore) {
+            throw new Error("Objectstore does not exist");
+        }
+
+        let currentCommitHash = this.getCurrentCommitHash();
+        if (!currentCommitHash) {
+            throw new Error("No commit history to log");
+        }
+
+        while (currentCommitHash) {
+            const commitContent = this.objectStore.read(currentCommitHash);
+            const commitObject = Commit.deserialize(commitContent);
+
+            console.log();
+            console.log("********************");
+            console.log(`Commit: ${currentCommitHash}`);
+            console.log(`Tree: ${commitObject.getTreeHash()}`);
+            console.log(`Parent commit: ${commitObject.getParentHash()}`);
+            console.log(`Message: ${commitObject.getMessage()}`);
+            console.log(
+                `Timestamp: ${commitObject.getTimestamp().toLocaleString()}`,
+            );
+            console.log("********************");
+            console.log();
+
+            currentCommitHash = commitObject.getParentHash();
+        }
+    }
+
+    getIndexEntries(): Record<string, string> {
+        if (!this.index) {
+            throw new Error("Index is not initialized");
+        }
+
+        return this.index.read();
+    }
+
+    getCurrentTreeEntries(): Record<string, string> {
+        if (!this.objectStore) {
+            throw new Error("ObjectStore is not initialized");
+        }
+        const currentCommitTreeHash = this.getCurrentCommitTree();
+
+        if (!currentCommitTreeHash) {
+            throw new Error("Current commit does not have a tree");
+        }
+
+        const currentTreeContent = this.objectStore?.read(
+            currentCommitTreeHash,
+        );
+        if (!currentTreeContent) {
+            throw new Error("Tree Object not found");
+        }
+        const tree = Tree.deserialize(currentTreeContent);
+        const treeEntries = tree.getEntries();
+
+        const entries: Record<string, string> = {};
+
+        for (const entry of treeEntries) {
+            entries[entry.name] = entry.hash;
+        }
+
+        return entries;
+    }
+
+    compareTrees() {
+        const headTreeEntries = this.getCurrentTreeEntries();
+        const indexEntries = this.getIndexEntries();
+
+        const changes: string[] = [];
+
+        for (const fileName in headTreeEntries) {
+            const headHash = headTreeEntries[fileName];
+            const indexHash = indexEntries[fileName];
+
+            if (!indexHash) {
+                changes.push(`deleted: ${fileName}`)
+            } else if (headHash !== indexHash) {
+                changes.push(`modified: ${fileName}`)
+            }
+        }
+
+        return changes
     }
 }

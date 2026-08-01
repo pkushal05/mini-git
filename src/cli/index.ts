@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { init } from "../commands/init";
 import { add } from "../commands/add";
 import { commit } from "../commands/commit";
+import { log } from "../commands/log";
 
 const program = new Command();
 
@@ -27,10 +28,17 @@ program
 
 program
     .command("commit")
-    .description("Create a snapshot     ")
+    .description("Create a snapshot of the codebase")
     .argument("<message>")
     .action((message) => {
         commit(message);
+    });
+
+program
+    .command("log")
+    .description("Log the commit history")
+    .action(() => {
+        log();
     });
 
 program.parse();
