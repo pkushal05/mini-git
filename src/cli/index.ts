@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { init } from "../commands/init";
 import { add } from "../commands/add";
+import { commit } from "../commands/commit";
 
 const program = new Command();
 
@@ -22,6 +23,14 @@ program
     .argument("<file>")
     .action((file) => {
         add(file);
+    });
+
+program
+    .command("commit")
+    .description("Create a snapshot     ")
+    .argument("<message>")
+    .action((message) => {
+        commit(message);
     });
 
 program.parse();

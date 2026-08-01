@@ -4,7 +4,7 @@ export class Index {
     constructor(private indexPath: string) {}
 
     read(): Record<string, string> {
-        if (fs.existsSync(this.indexPath)) {
+        if (!fs.existsSync(this.indexPath)) {
             return {};
         }
 
