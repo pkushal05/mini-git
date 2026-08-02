@@ -220,12 +220,147 @@ export class Repository {
             const indexHash = indexEntries[fileName];
 
             if (!indexHash) {
-                changes.push(`deleted: ${fileName}`)
+                changes.push(`deleted: ${fileName}`);
             } else if (headHash !== indexHash) {
-                changes.push(`modified: ${fileName}`)
+                changes.push(`modified: ${fileName}`);
             }
         }
 
-        return changes
+        return changes;
     }
+
+    compareWorkingDir() {
+        if (!this.objectStore) {
+            throw new Error("ObjectStore is not initialized");
+        }
+
+        const indexEntries = this.getIndexEntries();
+
+        const changes: string[] = [];
+
+        for (const fileName in indexEntries) {
+            const stagedHash = indexEntries[fileName];
+            const currentContent = fs.readFileSync(fileName, "utf8");
+
+            const currentHash = this.objectStore.hash(currentContent);
+
+            if (currentHash !== stagedHash) {
+                changes.push(`modified: ${fileName}`);
+            }
+        }
+
+        return changes;
+    }
+
+    status(): void {
+        const stagedChanges = this.compareTrees();
+        const unStagedChanges = this.compareWorkingDir();
+        if (stagedChanges.length === 0 && unStagedChanges.length === 0) {
+            console.log("Nothing to commit. Working tree clean");
+            return;
+        }
+
+        if (stagedChanges.length > 0) {
+            console.log("Changes to be commited");
+
+            stagedChanges.forEach((change) => {
+                console.log(`   ${change}`);
+            });
+        }
+
+        if (unStagedChanges.length > 0) {
+            console.log("Changes not staged");
+
+            unStagedChanges.forEach((change) => {
+                console.log(`   ${change}`);
+            });
+        }
+    }
+
+    checkout(commitHash: string): void {
+        if (!this.objectStore) {
+            throw new Error("ObjectStore is not initialized");
+        }
+        const commitContent = this.objectStore.read(commitHash);
+        const commitObject = Commit.deserialize(commitContent);
+
+        const treeHash = commitObject.getTreeHash();
+
+        const treeContent = this.objectStore.read(treeHash);
+        const treeObject = Tree.deserialize(treeContent);
+        const treeEntries = treeObject.getEntries();
+
+        for (const entry of treeEntries) {
+            const fileName = entry.name;
+            const fileContent = this.objectStore.read(entry.hash);
+
+            const dir = path.dirname(fileName);
+            fs.mkdirSync(dir, { recursive: true });
+
+            fs.writeFileSync(fileName, fileContent);
+        }
+
+        const newIndex: Record<string, string> = {};
+        treeEntries.forEach((entry) => {
+            newIndex[entry.name] = entry.hash;
+        });
+
+        if (!this.index) {
+            throw new Error("Index is not initialized");
+        }
+
+        this.index.write(newIndex);
+        this.updateHEAD(commitHash);
+    }
+
+    createBranch(branchName: string): void {
+        const currentCommitHash = this.getCurrentCommitHash();
+
+        if (!currentCommitHash) {
+            throw new Error("Cannot create branch without commits");
+        }
+
+        const branchPath = path.join(
+            this.rootPath,
+            ".mgit",
+            "refs",
+            "heads",
+            branchName,
+        );
+
+        if (fs.existsSync(branchPath)) {
+            throw new Error("Branch already exists");
+        }
+
+        fs.writeFileSync(branchPath, currentCommitHash);
+    }
+
+    switchBranch(branchName: string): void {
+        const branchPath = path.join(
+            this.rootPath,
+            ".mgit",
+            "refs",
+            "heads",
+            branchName,
+        );
+
+        if (!fs.existsSync(branchPath)) {
+            throw new Error("Branch does not exist");
+        }
+
+        const commitHash = fs.readFileSync(branchPath, "utf8").trim();
+
+        if (!commitHash) {
+            throw new Error("Branch has no commit history");
+        }
+
+        this.checkout(commitHash);
+
+        const HEADPath = path.join(this.rootPath, ".mgit", "HEAD");
+
+        fs.writeFileSync(HEADPath, `ref: refs/heads/${branchName}`);
+    }
+
+    // TODO
+    // Add branch and switch commands in commander and wire up these functions
 }

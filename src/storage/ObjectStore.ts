@@ -26,4 +26,8 @@ export class ObjectStore {
 
         return fs.readFileSync(filePath, "utf-8");
     }
+
+    hash(content: string): string {
+        return crypto.createHash("sha256").update(content).digest("hex");
+    }
 }

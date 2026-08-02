@@ -3,6 +3,8 @@ import { init } from "../commands/init";
 import { add } from "../commands/add";
 import { commit } from "../commands/commit";
 import { log } from "../commands/log";
+import { status } from "../commands/status";
+import { checkout } from "../commands/checkout";
 
 const program = new Command();
 
@@ -39,6 +41,21 @@ program
     .description("Log the commit history")
     .action(() => {
         log();
+    });
+
+program
+    .command("status")
+    .description("Check the current state of your working directory")
+    .action(() => {
+        status();
+    });
+
+program
+    .command("checkout")
+    .description("Rollback to any version of the project")
+    .argument("<commitHash>")
+    .action((commitHash) => {
+        checkout(commitHash);
     });
 
 program.parse();
