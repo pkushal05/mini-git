@@ -10,6 +10,7 @@ import { switchBranch } from "../commands/switch";
 import { executeResetHard } from "../commands/reset";
 import { createTag } from "../commands/tag";
 import { restoreFromHead, restoreFromIndex } from "../commands/restore";
+import { merge } from "../commands/merge";
 
 const program = new Command();
 
@@ -109,4 +110,13 @@ program
             restoreFromIndex(fileName);
         }
     });
+
+program
+    .command("merge")
+    .description("Perform a fast-forward merge between two branches")
+    .argument("<targetBranch>")
+    .action((targetBranch) => {
+        merge(targetBranch);
+    });
+
 program.parse();

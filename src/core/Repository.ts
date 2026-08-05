@@ -18,20 +18,24 @@ export class Repository {
         this.index = new Index(indexPath);
     }
 
+    buildPath(...paths: string[]): string {
+        return path.join(...paths);
+    }
+
     init() {
-        const gitPath = path.join(this.rootPath, ".mgit");
+        const gitPath = this.buildPath(this.rootPath, ".mgit");
 
         if (fs.existsSync(gitPath)) {
             throw new Error("Mini Git repository already exists");
         }
 
-        const objectsPath = path.join(gitPath, "objects");
-        const refsPath = path.join(gitPath, "refs");
-        const tagsPath = path.join(refsPath, "tags");
-        const headDirPath = path.join(refsPath, "heads");
-        const branchPath = path.join(headDirPath, "main");
-        const headPath = path.join(gitPath, "HEAD");
-        const indexPath = path.join(gitPath, "index");
+        const objectsPath = this.buildPath(gitPath, "objects");
+        const refsPath = this.buildPath(gitPath, "refs");
+        const tagsPath = this.buildPath(gitPath, "tags");
+        const headDirPath = this.buildPath(refsPath, "heads");
+        const branchPath = this.buildPath(headDirPath, "main");
+        const headPath = this.buildPath(gitPath, "HEAD");
+        const indexPath = this.buildPath(gitPath, "index");
 
         fs.mkdirSync(gitPath, { recursive: true });
         fs.mkdirSync(objectsPath, { recursive: true });
@@ -61,22 +65,26 @@ export class Repository {
     }
 
     updateCurrentBranch(commithash: string): void {
-        const HEADPath = path.join(this.rootPath, ".mgit", "HEAD");
+        const HEADPath = this.buildPath(this.rootPath, ".mgit", "HEAD");
         const currentHEAD = fs.readFileSync(HEADPath, "utf-8");
 
         const refPath = currentHEAD.replace("ref: ", "").trim();
 
-        const currentBranch = path.join(this.rootPath, ".mgit", refPath);
+        const currentBranch = this.buildPath(this.rootPath, ".mgit", refPath);
 
         fs.writeFileSync(currentBranch, commithash);
     }
 
-    getCurrentCommitHash(): string | null {
-        const HEADPath = path.join(this.rootPath, ".mgit", "HEAD");
+    getCurrentBranchPath(): string {
+        const HEADPath = this.buildPath(this.rootPath, ".mgit", "HEAD");
         const getCurrBranch = fs.readFileSync(HEADPath, "utf-8");
-        const refPath = getCurrBranch.replace("ref: ", "").trim();
+        return getCurrBranch.replace("ref: ", "").trim();
+    }
 
-        const branchPath = path.join(this.rootPath, ".mgit", refPath);
+    getCurrentCommitHash(): string | null {
+        const refPath = this.getCurrentBranchPath();
+
+        const branchPath = this.buildPath(this.rootPath, ".mgit", refPath);
         const commitHash = fs.readFileSync(branchPath, "utf-8").trim();
 
         if (commitHash === "") {
@@ -257,6 +265,7 @@ export class Repository {
     status(): void {
         const stagedChanges = this.compareTrees();
         const unStagedChanges = this.compareWorkingDir();
+
         if (stagedChanges.length === 0 && unStagedChanges.length === 0) {
             console.log("Nothing to commit. Working tree clean");
             return;
@@ -312,7 +321,7 @@ export class Repository {
 
     resolveHashReference(reference: string): string {
         // If the provided reference is a commit hash itself
-        const objectPath = path.join(
+        const objectPath = this.buildPath(
             this.rootPath,
             ".mgit",
             "objects",
@@ -324,7 +333,7 @@ export class Repository {
         }
 
         // If the provided reference is a tag
-        const tagPath = path.join(
+        const tagPath = this.buildPath(
             this.rootPath,
             ".mgit",
             "refs",
@@ -358,7 +367,7 @@ export class Repository {
             throw new Error("Cannot create branch without commits");
         }
 
-        const branchPath = path.join(
+        const branchPath = this.buildPath(
             this.rootPath,
             ".mgit",
             "refs",
@@ -374,7 +383,7 @@ export class Repository {
     }
 
     switchBranch(branchName: string): void {
-        const branchPath = path.join(
+        const branchPath = this.buildPath(
             this.rootPath,
             ".mgit",
             "refs",
@@ -394,7 +403,7 @@ export class Repository {
 
         this.checkout(commitHash);
 
-        const HEADPath = path.join(this.rootPath, ".mgit", "HEAD");
+        const HEADPath = this.buildPath(this.rootPath, ".mgit", "HEAD");
 
         fs.writeFileSync(HEADPath, `ref: refs/heads/${branchName}`);
         this.updateCurrentBranch(commitHash);
@@ -418,7 +427,7 @@ export class Repository {
             throw new Error("Cannot create tag without commits");
         }
 
-        const tagPath = path.join(
+        const tagPath = this.buildPath(
             this.rootPath,
             ".mgit",
             "refs",
@@ -480,5 +489,60 @@ export class Repository {
         }
         const fileContent = this.objectStore.read(fileHash);
         fs.writeFileSync(fileName, fileContent);
+    }
+
+    isAncestor(ancestorHash: string, commitHash: string): boolean {
+        if (!this.objectStore) {
+            throw new Error("Objectstore not found");
+        }
+
+        let currentCommitHash: string | null = commitHash;
+        while (currentCommitHash) {
+            const commitContent = this.objectStore.read(currentCommitHash);
+            const commit = Commit.deserialize(commitContent);
+            if (currentCommitHash === ancestorHash) return true;
+
+            currentCommitHash = commit.getParentHash();
+        }
+
+        return false;
+    }
+
+    merge(targetBranch: string): void {
+        const currentCommitHash = this.getCurrentCommitHash();
+
+        if (!currentCommitHash) {
+            throw new Error("Current branch has no commit history");
+        }
+
+        const currentBranchRef = this.getCurrentBranchPath();
+        const targetBranchPath = this.buildPath(
+            this.rootPath,
+            ".mgit",
+            "refs",
+            "heads",
+            targetBranch,
+        );
+
+        if (!fs.existsSync(targetBranchPath)) {
+            throw new Error("Branch does not exist");
+        }
+
+        const targetBranchCommitHash = fs
+            .readFileSync(targetBranchPath, "utf8")
+            .trim();
+
+        if (!targetBranchCommitHash) {
+            throw new Error(`${targetBranch} has no commit history`);
+        }
+
+        if (!this.isAncestor(currentCommitHash, targetBranchCommitHash)) {
+            throw new Error(
+                "Cannot merge: target branch is not based on the current branch",
+            );
+        }
+
+        this.updateCurrentBranch(targetBranchCommitHash);
+        this.checkout(targetBranchCommitHash);
     }
 }
