@@ -4,6 +4,7 @@ import { ObjectStore } from "../storage/ObjectStore";
 import { Index } from "../storage/Index";
 import { Tree } from "./Tree";
 import { Commit } from "./Commit";
+import { time } from "console";
 
 export class Repository {
     private objectStore?: ObjectStore;
@@ -26,6 +27,7 @@ export class Repository {
 
         const objectsPath = path.join(gitPath, "objects");
         const refsPath = path.join(gitPath, "refs");
+        const tagsPath = path.join(refsPath, "tags");
         const headDirPath = path.join(refsPath, "heads");
         const branchPath = path.join(headDirPath, "main");
         const headPath = path.join(gitPath, "HEAD");
@@ -34,6 +36,7 @@ export class Repository {
         fs.mkdirSync(gitPath, { recursive: true });
         fs.mkdirSync(objectsPath, { recursive: true });
         fs.mkdirSync(refsPath, { recursive: true });
+        fs.mkdirSync(tagsPath, { recursive: true });
         fs.mkdirSync(headDirPath, { recursive: true });
         fs.writeFileSync(branchPath, "");
         fs.writeFileSync(headPath, "ref: refs/heads/main");
@@ -307,10 +310,41 @@ export class Repository {
         this.index.write(newIndex);
     }
 
-    checkout(commitHash: string): void {
+    resolveHashReference(reference: string): string {
+        // If the provided reference is a commit hash itself
+        const objectPath = path.join(
+            this.rootPath,
+            ".mgit",
+            "objects",
+            reference,
+        );
+
+        if (fs.existsSync(objectPath)) {
+            return reference;
+        }
+
+        // If the provided reference is a tag
+        const tagPath = path.join(
+            this.rootPath,
+            ".mgit",
+            "refs",
+            "tags",
+            reference,
+        );
+
+        if (fs.existsSync(tagPath)) {
+            return fs.readFileSync(tagPath, "utf-8");
+        }
+
+        throw new Error("Invalid Reference. Provide commit hash or tag");
+    }
+
+    checkout(reference: string): void {
         if (!this.objectStore) {
             throw new Error("ObjectStore is not initialized");
         }
+
+        const commitHash = this.resolveHashReference(reference);
         const commitContent = this.objectStore.read(commitHash);
         const commitObject = Commit.deserialize(commitContent);
 
@@ -375,5 +409,76 @@ export class Repository {
         const commitObject = Commit.deserialize(commitContent);
         this.updateCurrentBranch(commitHash);
         this.restoreTreeFromCommit(commitObject.getTreeHash());
+    }
+
+    createTag(tagName: string): void {
+        const currentCommitHash = this.getCurrentCommitHash();
+
+        if (!currentCommitHash) {
+            throw new Error("Cannot create tag without commits");
+        }
+
+        const tagPath = path.join(
+            this.rootPath,
+            ".mgit",
+            "refs",
+            "tags",
+            tagName,
+        );
+
+        if (fs.existsSync(tagPath)) {
+            throw new Error("Tag already exists");
+        }
+
+        fs.writeFileSync(tagPath, currentCommitHash);
+    }
+
+    restoreSourceHead(fileName: string): void {
+        if (!this.objectStore) {
+            throw new Error("Objectstore does not exist");
+        }
+        if (!this.index) {
+            throw new Error("Index is not initialized");
+        }
+
+        const currentCommitHash = this.getCurrentCommitHash();
+        if (!currentCommitHash) {
+            throw new Error("No commit history");
+        }
+
+        const commitContent = this.objectStore.read(currentCommitHash);
+        const commitObject = Commit.deserialize(commitContent);
+
+        const treeContent = this.objectStore.read(commitObject.getTreeHash());
+
+        const tree = Tree.deserialize(treeContent);
+        const entry = tree.getEntries().find((e) => e.name === fileName);
+
+        if (!entry) {
+            throw new Error("File does not exist in latest commit");
+        }
+
+        this.index.add(fileName, entry.hash);
+        const fileContent = this.objectStore.read(entry.hash);
+
+        fs.writeFileSync(fileName, fileContent);
+    }
+
+    restoreSourceIndex(fileName: string): void {
+        if (!this.objectStore) {
+            throw new Error("Objectstore does not exist");
+        }
+        if (!this.index) {
+            throw new Error("Index is not initialized");
+        }
+
+        const indexEntries = this.index.read();
+        const fileHash = indexEntries[fileName];
+
+        if (!fileHash) {
+            throw new Error("File is not staged");
+        }
+        const fileContent = this.objectStore.read(fileHash);
+        fs.writeFileSync(fileName, fileContent);
     }
 }

@@ -8,6 +8,8 @@ import { checkout } from "../commands/checkout";
 import { createBranch } from "../commands/branch";
 import { switchBranch } from "../commands/switch";
 import { executeResetHard } from "../commands/reset";
+import { createTag } from "../commands/tag";
+import { restoreFromHead, restoreFromIndex } from "../commands/restore";
 
 const program = new Command();
 
@@ -82,9 +84,29 @@ program
     .option("--hard", "perform hard reset")
     .argument("<commitHash>")
     .action((commitHash, options) => {
-
         if (options.hard) {
             executeResetHard(commitHash);
+        }
+    });
+
+program
+    .command("tag")
+    .description("Add a tag to the latest commit")
+    .argument("<tagName>")
+    .action((tagName) => {
+        createTag(tagName);
+    });
+
+program
+    .command("restore")
+    .option("--source-head", "perfrom a restore from HEAD")
+    .description("Restore a specific file from the last staged version")
+    .argument("<fileName>")
+    .action((fileName, options) => {
+        if (options.sourceHead) {
+            restoreFromHead(fileName);
+        } else {
+            restoreFromIndex(fileName);
         }
     });
 program.parse();
