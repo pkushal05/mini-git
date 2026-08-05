@@ -5,6 +5,9 @@ import { commit } from "../commands/commit";
 import { log } from "../commands/log";
 import { status } from "../commands/status";
 import { checkout } from "../commands/checkout";
+import { createBranch } from "../commands/branch";
+import { switchBranch } from "../commands/switch";
+import { executeResetHard } from "../commands/reset";
 
 const program = new Command();
 
@@ -58,4 +61,30 @@ program
         checkout(commitHash);
     });
 
+program
+    .command("branch")
+    .description("Create a new branch")
+    .argument("<branchName>")
+    .action((branchName) => {
+        createBranch(branchName);
+    });
+
+program
+    .command("switch")
+    .description("Switch to any exisiting branch")
+    .argument("<branchName>")
+    .action((branchName) => {
+        switchBranch(branchName);
+    });
+
+program
+    .command("reset")
+    .option("--hard", "perform hard reset")
+    .argument("<commitHash>")
+    .action((commitHash, options) => {
+
+        if (options.hard) {
+            executeResetHard(commitHash);
+        }
+    });
 program.parse();

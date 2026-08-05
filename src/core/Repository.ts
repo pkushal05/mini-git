@@ -57,16 +57,15 @@ export class Repository {
         return this.objectStore.save(content);
     }
 
-    updateHEAD(commithash: string): void {
-        const headPath = path.join(
-            this.rootPath,
-            ".mgit",
-            "refs",
-            "heads",
-            "main",
-        );
+    updateCurrentBranch(commithash: string): void {
+        const HEADPath = path.join(this.rootPath, ".mgit", "HEAD");
+        const currentHEAD = fs.readFileSync(HEADPath, "utf-8");
 
-        fs.writeFileSync(headPath, commithash);
+        const refPath = currentHEAD.replace("ref: ", "").trim();
+
+        const currentBranch = path.join(this.rootPath, ".mgit", refPath);
+
+        fs.writeFileSync(currentBranch, commithash);
     }
 
     getCurrentCommitHash(): string | null {
@@ -138,7 +137,7 @@ export class Repository {
 
         const commitHash = this.objectStore.save(serializedCommit);
 
-        this.updateHEAD(commitHash);
+        this.updateCurrentBranch(commitHash);
 
         return commitHash;
     }
@@ -277,14 +276,10 @@ export class Repository {
         }
     }
 
-    checkout(commitHash: string): void {
+    restoreTreeFromCommit(treeHash: string): void {
         if (!this.objectStore) {
             throw new Error("ObjectStore is not initialized");
         }
-        const commitContent = this.objectStore.read(commitHash);
-        const commitObject = Commit.deserialize(commitContent);
-
-        const treeHash = commitObject.getTreeHash();
 
         const treeContent = this.objectStore.read(treeHash);
         const treeObject = Tree.deserialize(treeContent);
@@ -310,7 +305,16 @@ export class Repository {
         }
 
         this.index.write(newIndex);
-        this.updateHEAD(commitHash);
+    }
+
+    checkout(commitHash: string): void {
+        if (!this.objectStore) {
+            throw new Error("ObjectStore is not initialized");
+        }
+        const commitContent = this.objectStore.read(commitHash);
+        const commitObject = Commit.deserialize(commitContent);
+
+        this.restoreTreeFromCommit(commitObject.getTreeHash());
     }
 
     createBranch(branchName: string): void {
@@ -359,8 +363,17 @@ export class Repository {
         const HEADPath = path.join(this.rootPath, ".mgit", "HEAD");
 
         fs.writeFileSync(HEADPath, `ref: refs/heads/${branchName}`);
+        this.updateCurrentBranch(commitHash);
     }
 
-    // TODO
-    // Add branch and switch commands in commander and wire up these functions
+    resetHard(commitHash: string): void {
+        if (!this.objectStore) {
+            throw new Error("ObjectStore is not initialized");
+        }
+
+        const commitContent = this.objectStore.read(commitHash);
+        const commitObject = Commit.deserialize(commitContent);
+        this.updateCurrentBranch(commitHash);
+        this.restoreTreeFromCommit(commitObject.getTreeHash());
+    }
 }
