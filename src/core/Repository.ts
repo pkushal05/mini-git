@@ -2,7 +2,7 @@ import path from "path";
 import fs from "fs";
 import { ObjectStore } from "../storage/ObjectStore";
 import { Index } from "../storage/Index";
-import { Tree } from "./Tree";
+import { Tree, TreeEntry } from "./Tree";
 import { Commit } from "./Commit";
 import { time } from "console";
 
@@ -536,13 +536,157 @@ export class Repository {
             throw new Error(`${targetBranch} has no commit history`);
         }
 
-        if (!this.isAncestor(currentCommitHash, targetBranchCommitHash)) {
-            throw new Error(
-                "Cannot merge: target branch is not based on the current branch",
-            );
+        if (this.isAncestor(currentCommitHash, targetBranchCommitHash)) {
+            this.fastForwardMerge(targetBranchCommitHash);
+        } else {
+            this.threeWayMerge(currentCommitHash, targetBranchCommitHash);
         }
+    }
 
+    fastForwardMerge(targetBranchCommitHash: string) {
         this.updateCurrentBranch(targetBranchCommitHash);
         this.checkout(targetBranchCommitHash);
+    }
+
+    threeWayMerge(currentCommitHash: string, targetBranchCommitHash: string) {
+        if (!this.objectStore) {
+            throw new Error("Objectstore not found");
+        }
+
+        const ancestorHash = this.findCommonAncestor(
+            currentCommitHash,
+            targetBranchCommitHash,
+        );
+
+        if (!ancestorHash) {
+            throw new Error("No common ancestor found");
+        }
+
+        const ancestorTreeHash = Commit.deserialize(
+            this.objectStore.read(ancestorHash),
+        ).getTreeHash();
+
+        const currentTreeHash = Commit.deserialize(
+            this.objectStore.read(currentCommitHash),
+        ).getTreeHash();
+
+        const targetTreeHash = Commit.deserialize(
+            this.objectStore.read(targetBranchCommitHash),
+        ).getTreeHash();
+
+        const ancestorTree = Tree.deserialize(
+            this.objectStore.read(ancestorTreeHash),
+        );
+
+        const currentTree = Tree.deserialize(
+            this.objectStore.read(currentTreeHash),
+        );
+
+        const targetTree = Tree.deserialize(
+            this.objectStore.read(targetTreeHash),
+        );
+
+        const ancestorTreeMap = this.treesToMap(ancestorTree);
+        const currentTreeMap = this.treesToMap(currentTree);
+        const targetTreeMap = this.treesToMap(targetTree);
+
+        const filesList = new Set<string>();
+        for (let i of Object.keys(ancestorTreeMap)) {
+            filesList.add(i);
+        }
+        for (let i of Object.keys(currentTreeMap)) {
+            filesList.add(i);
+        }
+        for (let i of Object.keys(targetTreeMap)) {
+            filesList.add(i);
+        }
+
+        let mergedFiles: Record<string, string> = {};
+
+        for (let fileName of filesList) {
+            let ancestorHash = ancestorTreeMap[fileName];
+            let currentHash = currentTreeMap[fileName];
+            let targetHash = targetTreeMap[fileName];
+
+            if (ancestorHash === currentHash && currentHash === targetHash) {
+                continue;
+            } else if (
+                ancestorHash === currentHash &&
+                currentHash !== targetHash
+            ) {
+                mergedFiles[fileName] = targetHash;
+            } else if (
+                ancestorHash === targetHash &&
+                targetHash !== currentHash
+            ) {
+                mergedFiles[fileName] = currentHash;
+            } else if (
+                currentHash === targetHash &&
+                currentHash !== ancestorHash
+            ) {
+                mergedFiles[fileName] = currentHash;
+            } else if (
+                ancestorHash !== currentHash &&
+                currentHash !== targetHash &&
+                ancestorHash !== targetHash
+            ) {
+                throw new Error("MERGE CONFLICT");
+            }
+        }
+
+        const mergedTree = this.mapToTree(mergedFiles);
+        
+
+    }
+
+    treesToMap(tree: Tree): Record<string, string> {
+        let map: Record<string, string> = {};
+        for (let t of tree.getEntries()) {
+            map[t.name] = t.hash;
+        }
+
+        return map;
+    }
+
+    mapToTree(treeMap: Record<string, string>): Tree {
+        let treeEntries: TreeEntry[] = [];
+        for (let t of Object.keys(treeMap)) {
+            treeEntries.push({
+                name: t,
+                hash: treeMap[t],
+                type: "blob" as const,
+            });
+        }
+
+        return new Tree(treeEntries);
+    }
+
+    findCommonAncestor(commitA: string, commitB: string): string | null {
+        if (!this.objectStore) {
+            throw new Error("Objectstore does not exist");
+        }
+        let set = new Set<string>();
+
+        let tempA: string | null = commitA;
+        while (tempA) {
+            set.add(tempA);
+            let commitAObject = Commit.deserialize(
+                this.objectStore.read(tempA),
+            );
+
+            tempA = commitAObject.getParentHash();
+        }
+
+        let tempB: string | null = commitB;
+        while (tempB) {
+            if (set.has(tempB)) return tempB;
+            let commitBObject = Commit.deserialize(
+                this.objectStore.read(tempB),
+            );
+
+            tempB = commitBObject.getParentHash();
+        }
+
+        return null;
     }
 }

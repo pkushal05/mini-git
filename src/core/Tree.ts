@@ -1,4 +1,4 @@
-type TreeEntry = {
+export type TreeEntry = {
     name: string;
     hash: string;
     type: "blob" | "tree";
